@@ -36,22 +36,22 @@
 
 ### Start Screen — Dark Mode
 
-![Quizora Start Screen Dark](Screenshot_783.png)
+![Quizora Start Screen Dark](./screenshots/Screenshot_783.png)
 _The welcome card with glassmorphism styling, animated background orbs, and a prominent "Start Quiz" CTA._
 
 ### Start Screen — Light Mode
 
-![Quizora Start Screen Light](Screenshot_784.png)
+![Quizora Start Screen Light](./screenshots/Screenshot_784.png)
 _Full light theme support via CSS custom properties — toggled with the sun/moon button in the top-right corner._
 
 ### Quiz Screen — Active Question
 
-![Quizora Quiz Screen](Screenshot_785.png)
+![Quizora Quiz Screen](./screenshots/Screenshot_785.png)
 _Per-question SVG countdown ring (15s), progress bar, real-time score badge, and keyboard shortcut hints._
 
 ### Results Screen — Answer Review
 
-![Quizora Results Screen](Screenshot_788.png)
+![Quizora Results Screen](./screenshots/Screenshot_788.png)
 _Score summary with animated percentage bar, per-question breakdown showing correct and incorrect answers with the right answer revealed._
 
 ---
