@@ -1,0 +1,29 @@
+{
+  "name": "quizora-backend",
+  "version": "1.0.0",
+  "description": "Quizora — Production-grade Quiz API built with Node.js & Express",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "node src/utils/testRunner.js"
+  },
+  "keywords": [
+    "quiz",
+    "express",
+    "api"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "uuid": "^9.0.1",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

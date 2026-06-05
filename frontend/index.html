@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quizora — Premium Quiz Experience</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Clash+Display:wght@400;500;600;700&family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- Ambient background orbs -->
+    <div class="bg-orbs" aria-hidden="true">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
+    </div>
+
+    <!-- Noise overlay -->
+    <div class="noise-overlay" aria-hidden="true"></div>
+
+    <!-- Main App Container -->
+    <div class="app-container" id="app">
+      <!-- ── LOADING SCREEN ── -->
+      <div class="screen active" id="screen-loading">
+        <div class="loading-card">
+          <div class="loading-logo">
+            <span class="logo-icon">⚡</span>
+            <span class="logo-text">Quizora</span>
+          </div>
+          <div class="loading-spinner">
+            <svg viewBox="0 0 80 80" class="spinner-svg">
+              <circle cx="40" cy="40" r="32" class="spinner-track" />
+              <circle cx="40" cy="40" r="32" class="spinner-fill" />
+            </svg>
+          </div>
+          <p class="loading-label">Preparing your experience…</p>
+        </div>
+      </div>
+
+      <!-- ── START SCREEN ── -->
+      <div class="screen" id="screen-start">
+        <div class="start-card glass-card">
+          <div class="start-badge">Ready to test yourself?</div>
+          <h1 class="start-title">Challenge <br /><em>Your Mind</em></h1>
+          <p class="start-desc">
+            A beautifully crafted quiz experience. One question at a time, 15
+            seconds on the clock, zero excuses.
+          </p>
+          <div class="start-meta">
+            <div class="meta-pill">
+              <span class="meta-icon">🧠</span>
+              <span id="meta-q-count">— Questions</span>
+            </div>
+            <div class="meta-pill">
+              <span class="meta-icon">⏱</span>
+              <span>15s per question</span>
+            </div>
+            <div class="meta-pill">
+              <span class="meta-icon">🔀</span>
+              <span>Shuffled order</span>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="btn-start">
+            <span class="btn-label">Start Quiz</span>
+            <span class="btn-arrow">→</span>
+          </button>
+          <button
+            class="btn-icon-toggle"
+            id="btn-theme"
+            title="Toggle theme"
+            aria-label="Toggle dark/light theme"
+          >
+            <span class="theme-icon">☀️</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── QUIZ SCREEN ── -->
+      <div class="screen" id="screen-quiz">
+        <div class="quiz-layout">
+          <!-- Top bar -->
+          <div class="quiz-topbar glass-card">
+            <div class="topbar-left">
+              <span class="logo-text sm">Quizora</span>
+            </div>
+            <div class="topbar-center">
+              <div class="progress-track">
+                <div class="progress-fill" id="progress-fill"></div>
+              </div>
+              <span class="progress-label" id="progress-label"
+                >Question 1 of 5</span
+              >
+            </div>
+            <div class="topbar-right">
+              <div class="score-badge" id="score-badge">Score: 0</div>
+            </div>
+          </div>
+
+          <!-- Question card -->
+          <div class="question-card glass-card" id="question-card">
+            <!-- Timer -->
+            <div class="timer-wrap">
+              <svg class="timer-ring" viewBox="0 0 64 64">
+                <circle cx="32" cy="32" r="27" class="ring-track" />
+                <circle
+                  cx="32"
+                  cy="32"
+                  r="27"
+                  class="ring-fill"
+                  id="ring-fill"
+                />
+              </svg>
+              <span class="timer-num" id="timer-num">15</span>
+            </div>
+
+            <!-- Question body -->
+            <div class="question-body">
+              <p class="question-num" id="q-num">01</p>
+              <h2 class="question-text" id="q-text">Loading question…</h2>
+            </div>
+
+            <!-- Options -->
+            <div
+              class="options-grid"
+              id="options-grid"
+              role="radiogroup"
+              aria-label="Answer options"
+            ></div>
+
+            <!-- Footer -->
+            <div class="question-footer">
+              <div class="keyboard-hint" aria-hidden="true">
+                <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd> to select ·
+                <kbd>Enter</kbd> to continue
+              </div>
+              <button class="btn btn-primary" id="btn-next" disabled>
+                <span class="btn-label">Next</span>
+                <span class="btn-arrow">→</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SUBMITTING SCREEN ── -->
+      <div class="screen" id="screen-submitting">
+        <div class="loading-card">
+          <div class="loading-spinner">
+            <svg viewBox="0 0 80 80" class="spinner-svg">
+              <circle cx="40" cy="40" r="32" class="spinner-track" />
+              <circle cx="40" cy="40" r="32" class="spinner-fill" />
+            </svg>
+          </div>
+          <p class="loading-label">Submitting your answers…</p>
+        </div>
+      </div>
+
+      <!-- ── RESULTS SCREEN ── -->
+      <div class="screen" id="screen-results">
+        <!-- Confetti canvas -->
+        <canvas id="confetti-canvas" aria-hidden="true"></canvas>
+
+        <div class="results-card glass-card">
+          <div class="results-trophy" id="results-trophy">🏆</div>
+          <h2 class="results-title" id="results-title">Brilliant!</h2>
+          <div class="score-display">
+            <span class="score-num" id="score-num">0</span>
+            <span class="score-denom" id="score-denom">/5</span>
+          </div>
+          <div class="percent-bar-wrap">
+            <div class="percent-bar-track">
+              <div class="percent-bar-fill" id="percent-bar"></div>
+            </div>
+            <span class="percent-label" id="percent-label">0%</span>
+          </div>
+
+          <div class="review-section" id="review-section">
+            <h3 class="review-heading">Answer Review</h3>
+            <div class="review-list" id="review-list"></div>
+          </div>
+
+          <button class="btn btn-primary" id="btn-restart">
+            <span class="btn-label">Play Again</span>
+            <span class="btn-arrow">↺</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── ERROR SCREEN ── -->
+      <div class="screen" id="screen-error">
+        <div class="error-card glass-card">
+          <div class="error-icon">⚠️</div>
+          <h2 class="error-title">Something went wrong</h2>
+          <p class="error-msg" id="error-msg">
+            Could not connect to the server.
+          </p>
+          <button class="btn btn-primary" id="btn-retry">
+            <span class="btn-label">Retry</span>
+            <span class="btn-arrow">↺</span>
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- /.app-container -->
+
+    <script src="script.js"></script>
+  </body>
+</html>
