@@ -1,9 +1,4 @@
 // src/controllers/quizController.js
-// ─────────────────────────────────────────────────────────────
-// All quiz business logic lives here.
-// Controllers call the data layer and respond — no raw DB /
-// store calls in routes.
-// ─────────────────────────────────────────────────────────────
 "use strict";
 
 const { v4: uuidv4 } = require("uuid");
@@ -22,7 +17,6 @@ const {
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
-/** Fisher-Yates shuffle (non-mutating) */
 function shuffle(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -32,7 +26,6 @@ function shuffle(arr) {
   return a;
 }
 
-/** Build a consistent error response object */
 function errorResponse(message, details = null) {
   const obj = { success: false, error: message };
   if (details) obj.details = details;
@@ -40,11 +33,9 @@ function errorResponse(message, details = null) {
 }
 
 /* ── GET /questions ─────────────────────────────────────────
-   Returns shuffled questions (answers stripped) and creates
-   a server-side session for optional validation at submit.
+   Strips answers before sending to client.
    ─────────────────────────────────────────────────────────── */
 function getQuestions(req, res) {
-  // Validate query params
   const parsed = validate(questionQuerySchema, req.query);
   if (!parsed.success) {
     return res
@@ -63,7 +54,6 @@ function getQuestions(req, res) {
       .json(errorResponse("No questions found for the given filters"));
   }
 
-  // Create a session so we can validate submit later
   const sessionId = uuidv4();
   sessionStore.create(
     sessionId,
@@ -72,18 +62,22 @@ function getQuestions(req, res) {
 
   res.status(200).json({
     success: true,
-    sessionId, // Client should send this back with /submit
+    sessionId,
     count: questions.length,
     questions,
   });
 }
 
 /* ── POST /submit ───────────────────────────────────────────
-   Receives { sessionId?, answers: { id: chosenOption } }
-   Grades answers and returns score + per-question breakdown.
+   Grades answers. Returns:
+     - score / total / percentage / grade
+     - breakdown { correct, wrong, skipped }
+     - results[]  — per-question detail incl. correct answer
+     - correctAnswers { [questionId]: answerText }  ← NEW
+       A flat map so the frontend can do O(1) lookups for the
+       review panel without iterating the full results array.
    ─────────────────────────────────────────────────────────── */
 function submitQuiz(req, res) {
-  // 1. Validate body schema
   const parsed = validate(submitSchema, req.body);
   if (!parsed.success) {
     return res
@@ -92,7 +86,6 @@ function submitQuiz(req, res) {
   }
   const { sessionId, answers } = parsed.data;
 
-  // 2. Session validation (if sessionId provided)
   if (sessionId) {
     const { valid, reason } = sessionStore.validate(sessionId);
     if (!valid) {
@@ -100,14 +93,12 @@ function submitQuiz(req, res) {
     }
   }
 
-  // 3. Grade
   const results = [];
   let correct = 0;
-  const answered = Object.keys(answers);
 
-  for (const questionId of answered) {
+  for (const questionId of Object.keys(answers)) {
     const question = getQuestionById(questionId);
-    if (!question) continue; // skip unknown IDs silently
+    if (!question) continue;
 
     const chosen = answers[questionId];
     const isCorrect = chosen !== null && chosen === question.answer;
@@ -117,21 +108,25 @@ function submitQuiz(req, res) {
       questionId,
       question: question.question,
       chosen: chosen || null,
-      correct: question.answer,
+      correct: question.answer, // ← already present, now explicitly relied on
       explanation: question.explanation || null,
       isCorrect,
     });
   }
 
-  // 4. Mark session submitted
   if (sessionId) sessionStore.markSubmitted(sessionId);
 
-  // 5. Build response
   const total = results.length;
   const skipped = results.filter((r) => r.chosen === null).length;
   const wrong = total - correct - skipped;
   const percentage = total > 0 ? Math.round((correct / total) * 100) : 0;
   const grade = getGrade(percentage);
+
+  // Flat map: { [questionId]: correctAnswerText }
+  // Lets the frontend skip iterating results[] for every review row.
+  const correctAnswers = Object.fromEntries(
+    results.map((r) => [r.questionId, r.correct]),
+  );
 
   res.status(200).json({
     success: true,
@@ -140,29 +135,24 @@ function submitQuiz(req, res) {
     percentage,
     grade,
     breakdown: { correct, wrong, skipped },
-    results, // per-question detail
+    correctAnswers, // ← new flat map
+    results, // ← full per-question detail (unchanged)
   });
 }
 
-/* ── GET /categories ────────────────────────────────────────
-   Returns all available question categories.
-   ─────────────────────────────────────────────────────────── */
+/* ── GET /categories ─────────────────────────────────────── */
 function listCategories(_req, res) {
   const categories = getCategories();
   res.status(200).json({ success: true, categories });
 }
 
-/* ── GET /stats ─────────────────────────────────────────────
-   Returns question bank statistics.
-   ─────────────────────────────────────────────────────────── */
+/* ── GET /stats ──────────────────────────────────────────── */
 function getQuizStats(_req, res) {
   const stats = getStats();
   res.status(200).json({ success: true, stats });
 }
 
-/* ── GET /health ────────────────────────────────────────────
-   Liveness probe used by load balancers / deployment checks.
-   ─────────────────────────────────────────────────────────── */
+/* ── GET /health ─────────────────────────────────────────── */
 function healthCheck(_req, res) {
   res.status(200).json({
     status: "ok",
@@ -176,7 +166,6 @@ function healthCheck(_req, res) {
   });
 }
 
-/* ── Helpers ── */
 function getGrade(pct) {
   if (pct === 100) return "S";
   if (pct >= 80) return "A";

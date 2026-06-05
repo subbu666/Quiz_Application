@@ -7,13 +7,15 @@
 /* ── Config ── */
 const API_BASE = "http://localhost:5000";
 const TIMER_SEC = 15;
-const TIMER_CIRCUM = 2 * Math.PI * 27; // r=27 in SVG (≈169.646)
+const TIMER_CIRCUM = 2 * Math.PI * 27;
 
 /* ── State ── */
 let questions = [];
 let current = 0;
 let answers = {};
+let correctAnswers = {}; // ← CHANGED: stores { [questionId]: answerText } from server
 let score = 0;
+let sessionId = null; // ← CHANGED: track session returned by /questions
 let timerID = null;
 let timeLeft = TIMER_SEC;
 let selected = null;
@@ -30,7 +32,7 @@ const screens = {
   error: $("screen-error"),
 };
 
-/* ── Audio (Web Audio API tones) ── */
+/* ── Audio ── */
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 let audioCtx = null;
 function getAudio() {
@@ -92,10 +94,12 @@ async function init() {
     const res = await fetch(`${API_BASE}/questions`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+
     questions = shuffle(Array.isArray(data) ? data : data.questions || []);
+    sessionId = data.sessionId || null; // ← CHANGED: persist for /submit
+
     if (!questions.length) throw new Error("No questions returned");
     $("meta-q-count").textContent = `${questions.length} Questions`;
-    // Small min-delay so loader doesn't flash
     await sleep(600);
     showScreen("start");
   } catch (err) {
@@ -112,6 +116,7 @@ function startQuiz() {
   questions = shuffle(questions);
   current = 0;
   answers = {};
+  correctAnswers = {}; // ← CHANGED: reset between runs
   score = 0;
   selected = null;
   updateScoreBadge();
@@ -128,20 +133,14 @@ function loadQuestion(idx, animate = true) {
 
   const card = $("question-card");
   const doLoad = () => {
-    // Progress
     const pct = (idx / questions.length) * 100;
     $("progress-fill").style.width = `${pct}%`;
     $("progress-label").textContent =
       `Question ${idx + 1} of ${questions.length}`;
-    // Question number
     $("q-num").textContent = String(idx + 1).padStart(2, "0");
-    // Text
     $("q-text").textContent = q.question;
-    // Options
     renderOptions(q);
-    // Timer
     startTimer();
-    // Animate in
     card.classList.remove("question-exiting");
     card.classList.add("question-entering");
     setTimeout(() => card.classList.remove("question-entering"), 400);
@@ -172,7 +171,6 @@ function renderOptions(q) {
     btn.innerHTML = `
       <span class="option-letter">${letters[i]}</span>
       <span class="option-text">${opt}</span>`;
-
     btn.addEventListener("click", () => selectOption(btn, opt));
     grid.appendChild(btn);
   });
@@ -181,12 +179,10 @@ function renderOptions(q) {
 function selectOption(btnEl, value) {
   if (!quizRunning) return;
   playSelect();
-  // Deselect all
   document.querySelectorAll(".option-btn").forEach((b) => {
     b.classList.remove("selected");
     b.setAttribute("aria-checked", "false");
   });
-  // Select clicked
   btnEl.classList.add("selected");
   btnEl.setAttribute("aria-checked", "true");
   selected = value;
@@ -199,7 +195,6 @@ function nextQuestion() {
   stopTimer();
   answers[questions[current].id || questions[current]._id || current] =
     selected;
-
   current++;
   if (current < questions.length) {
     loadQuestion(current, true);
@@ -215,7 +210,6 @@ function startTimer() {
   stopTimer();
   timeLeft = TIMER_SEC;
   updateTimerDisplay();
-
   timerID = setInterval(() => {
     timeLeft--;
     if (timeLeft <= 5) playTick();
@@ -239,12 +233,9 @@ function updateTimerDisplay() {
   const numEl = $("timer-num");
   const frac = timeLeft / TIMER_SEC;
   const offset = TIMER_CIRCUM * (1 - frac);
-
   ring.style.strokeDasharray = TIMER_CIRCUM;
   ring.style.strokeDashoffset = offset;
-
   numEl.textContent = timeLeft;
-
   const warn = timeLeft <= 10 && timeLeft > 5;
   const danger = timeLeft <= 5;
   ring.classList.toggle("warn", warn && !danger);
@@ -254,7 +245,6 @@ function updateTimerDisplay() {
 }
 
 function autoAdvance() {
-  // Record as skipped
   const q = questions[current];
   answers[q.id || q._id || current] = null;
   current++;
@@ -266,7 +256,7 @@ function autoAdvance() {
 }
 
 /* ─────────────────────────────────────────
-   SUBMIT
+   SUBMIT                                    ← CHANGED: full rewrite
    ───────────────────────────────────────── */
 async function submitQuiz() {
   quizRunning = false;
@@ -277,30 +267,46 @@ async function submitQuiz() {
     const res = await fetch(`${API_BASE}/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ answers }),
+      body: JSON.stringify({
+        sessionId, // send session so server can validate
+        answers,
+      }),
     });
-    const data = res.ok ? await res.json() : null;
-    // Compute score client-side as fallback
-    score = computeScore();
-    if (data && typeof data.score === "number") score = data.score;
-    await sleep(800);
-    showResults();
-  } catch (_) {
-    // Offline / backend down — still show results computed client-side
-    score = computeScore();
-    await sleep(800);
-    showResults();
+
+    if (res.ok) {
+      const data = await res.json();
+      // Use server score — authoritative
+      if (typeof data.score === "number") score = data.score;
+      // Store flat correctAnswers map for review panel
+      if (data.correctAnswers && typeof data.correctAnswers === "object") {
+        correctAnswers = data.correctAnswers;
+      } else if (Array.isArray(data.results)) {
+        // Fallback: build map from results[] if server sends that instead
+        data.results.forEach((r) => {
+          correctAnswers[r.questionId] = r.correct;
+        });
+      }
+    } else {
+      // Server error — score stays 0, review shows no correct answers
+      console.warn("Submit returned", res.status);
+    }
+  } catch (err) {
+    // Network failure — degrade gracefully, can't score without server
+    console.warn("Submit failed:", err.message);
   }
+
+  await sleep(800);
+  showResults();
 }
 
+/* ─────────────────────────────────────────
+   SCORE (client-side fallback)              ← CHANGED: uses correctAnswers map
+   ───────────────────────────────────────── */
 function computeScore() {
-  let s = 0;
-  questions.forEach((q, i) => {
+  return questions.reduce((s, q, i) => {
     const key = q.id || q._id || i;
-    const correct = q.answer || q.correctAnswer || q.correct;
-    if (answers[key] && answers[key] === correct) s++;
-  });
-  return s;
+    return answers[key] && answers[key] === correctAnswers[key] ? s + 1 : s;
+  }, 0);
 }
 
 /* ─────────────────────────────────────────
@@ -311,12 +317,10 @@ function showResults() {
   const total = questions.length;
   const pct = Math.round((score / total) * 100);
 
-  // Emoji / title
   const { icon, title } = getResultsMood(pct);
   $("results-trophy").textContent = icon;
   $("results-title").textContent = title;
 
-  // Score counter animation
   animateNumber($("score-num"), 0, score, 900);
   $("score-denom").textContent = `/${total}`;
   $("percent-label").textContent = `${pct}%`;
@@ -325,13 +329,8 @@ function showResults() {
     $("percent-bar").style.width = `${pct}%`;
   }, 100);
 
-  // Review list
   buildReview();
-
-  // Sound
   pct >= 60 ? playSuccess() : playFail();
-
-  // Confetti if passed
   if (pct >= 60) launchConfetti();
 }
 
@@ -343,14 +342,17 @@ function getResultsMood(pct) {
   return { icon: "💪", title: "Keep Practicing!" };
 }
 
+/* ─────────────────────────────────────────
+   REVIEW                                    ← CHANGED: uses correctAnswers map
+   ───────────────────────────────────────── */
 function buildReview() {
   const list = $("review-list");
   list.innerHTML = "";
   questions.forEach((q, i) => {
     const key = q.id || q._id || i;
-    const correct = q.answer || q.correctAnswer || q.correct || "";
+    const correct = correctAnswers[key] || ""; // ← server-provided answer
     const given = answers[key] || null;
-    const isRight = given && given === correct;
+    const isRight = Boolean(given && given === correct);
 
     const item = document.createElement("div");
     item.className = `review-item ${isRight ? "correct" : "wrong"}`;
@@ -363,10 +365,10 @@ function buildReview() {
           Your answer: <span>${given || "—"}</span>
         </div>
         ${
-          !isRight
+          !isRight && correct
             ? `<div class="review-answer correct-ans">
-          Correct: <span>${correct}</span>
-        </div>`
+                 Correct: <span>${correct}</span>
+               </div>`
             : ""
         }
       </div>`;
@@ -378,7 +380,7 @@ function updateScoreBadge() {
   const el = $("score-badge");
   el.textContent = `Score: ${score}`;
   el.classList.remove("bump");
-  void el.offsetWidth; // reflow
+  void el.offsetWidth;
   el.classList.add("bump");
 }
 
@@ -443,7 +445,7 @@ function launchConfetti() {
 }
 
 /* ─────────────────────────────────────────
-   RIPPLE EFFECT
+   RIPPLE
    ───────────────────────────────────────── */
 function addRipple(btn) {
   btn.classList.remove("ripple");
@@ -468,16 +470,13 @@ $("btn-theme").addEventListener("click", () => {
 });
 
 /* ─────────────────────────────────────────
-   KEYBOARD NAVIGATION
+   KEYBOARD NAV
    ───────────────────────────────────────── */
 document.addEventListener("keydown", (e) => {
-  const screenQuiz = screens.quiz;
-  if (!screenQuiz.classList.contains("active")) return;
+  if (!screens.quiz.classList.contains("active")) return;
   if (!quizRunning) return;
-
   const opts = document.querySelectorAll(".option-btn:not(:disabled)");
   const num = parseInt(e.key, 10);
-
   if (num >= 1 && num <= opts.length) {
     const target = opts[num - 1];
     target.click();
@@ -497,16 +496,13 @@ $("btn-start").addEventListener("click", () => {
   playSelect();
   startQuiz();
 });
-
 $("btn-next").addEventListener("click", () => {
   if (!$("btn-next").disabled) nextQuestion();
 });
-
 $("btn-restart").addEventListener("click", () => {
   playSelect();
   startQuiz();
 });
-
 $("btn-retry").addEventListener("click", () => {
   init();
 });
@@ -536,7 +532,5 @@ function animateNumber(el, from, to, dur) {
   requestAnimationFrame(step);
 }
 
-/* ─────────────────────────────────────────
-   BOOT
-   ───────────────────────────────────────── */
+/* ── Boot ── */
 init();
