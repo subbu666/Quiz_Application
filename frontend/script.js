@@ -5,7 +5,7 @@
 "use strict";
 
 /* ── Config ── */
-const API_BASE = "http://localhost:5000";
+const API_BASE = "https://quizapplication-production-52ec.up.railway.app";
 const TIMER_SEC = 15;
 const TIMER_CIRCUM = 2 * Math.PI * 27;
 

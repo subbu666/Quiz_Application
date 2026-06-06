@@ -23,7 +23,7 @@ if (fs.existsSync(envPath)) {
 }
 
 const env = {
-  PORT: parseInt(process.env.PORT || "5000", 10),
+  PORT: process.env.PORT || "5000",
   NODE_ENV: process.env.NODE_ENV || "development",
   ALLOWED_ORIGINS: (
     process.env.ALLOWED_ORIGINS ||
