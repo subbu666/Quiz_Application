@@ -27,7 +27,7 @@ const env = {
   NODE_ENV: process.env.NODE_ENV || "development",
   ALLOWED_ORIGINS: (
     process.env.ALLOWED_ORIGINS ||
-    "http://localhost:3000,http://127.0.0.1:5500,http://localhost:5500"
+    "http://localhost:3000,http://127.0.0.1:5500,http://localhost:5500,https://quiz-application-jet-eight.vercel.app"
   )
     .split(",")
     .map((s) => s.trim()),
