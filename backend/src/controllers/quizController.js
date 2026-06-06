@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require("uuid");
 const {
   getQuestionsForClient,
   getQuestionById,
+  getAllQuestions,
   getCategories,
   getStats,
 } = require("../data/questions");
@@ -68,14 +69,47 @@ function getQuestions(req, res) {
   });
 }
 
+/* ── GET /answers ───────────────────────────────────────────
+   Returns a flat { [questionId]: answerText } map for a valid
+   active session. Lets the frontend score answers live without
+   exposing answers before the quiz starts.
+
+   Only works while the session is still active (not submitted).
+   ─────────────────────────────────────────────────────────── */
+function getAnswers(req, res) {
+  const { sessionId } = req.query;
+
+  if (!sessionId) {
+    return res
+      .status(400)
+      .json(errorResponse("sessionId query param required"));
+  }
+
+  const { valid, reason } = sessionStore.validate(sessionId);
+  if (!valid) {
+    return res.status(409).json(errorResponse(reason || "Invalid session"));
+  }
+
+  // Pull the question IDs that belong to this session
+  const session = sessionStore.get(sessionId);
+  if (!session || !Array.isArray(session.questionIds)) {
+    return res.status(404).json(errorResponse("Session not found"));
+  }
+
+  const answerMap = {};
+  for (const id of session.questionIds) {
+    const q = getQuestionById(id);
+    if (q) answerMap[id] = q.answer;
+  }
+
+  res.status(200).json({
+    success: true,
+    answers: answerMap,
+  });
+}
+
 /* ── POST /submit ───────────────────────────────────────────
-   Grades answers. Returns:
-     - score / total / percentage / grade
-     - breakdown { correct, wrong, skipped }
-     - results[]  — per-question detail incl. correct answer
-     - correctAnswers { [questionId]: answerText }  ← NEW
-       A flat map so the frontend can do O(1) lookups for the
-       review panel without iterating the full results array.
+   Grades answers server-side (authoritative score).
    ─────────────────────────────────────────────────────────── */
 function submitQuiz(req, res) {
   const parsed = validate(submitSchema, req.body);
@@ -108,7 +142,7 @@ function submitQuiz(req, res) {
       questionId,
       question: question.question,
       chosen: chosen || null,
-      correct: question.answer, // ← already present, now explicitly relied on
+      correct: question.answer,
       explanation: question.explanation || null,
       isCorrect,
     });
@@ -122,8 +156,6 @@ function submitQuiz(req, res) {
   const percentage = total > 0 ? Math.round((correct / total) * 100) : 0;
   const grade = getGrade(percentage);
 
-  // Flat map: { [questionId]: correctAnswerText }
-  // Lets the frontend skip iterating results[] for every review row.
   const correctAnswers = Object.fromEntries(
     results.map((r) => [r.questionId, r.correct]),
   );
@@ -135,8 +167,8 @@ function submitQuiz(req, res) {
     percentage,
     grade,
     breakdown: { correct, wrong, skipped },
-    correctAnswers, // ← new flat map
-    results, // ← full per-question detail (unchanged)
+    correctAnswers,
+    results,
   });
 }
 
@@ -176,6 +208,7 @@ function getGrade(pct) {
 
 module.exports = {
   getQuestions,
+  getAnswers,
   submitQuiz,
   listCategories,
   getQuizStats,

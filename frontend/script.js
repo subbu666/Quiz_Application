@@ -13,9 +13,9 @@ const TIMER_CIRCUM = 2 * Math.PI * 27;
 let questions = [];
 let current = 0;
 let answers = {};
-let correctAnswers = {}; // ← CHANGED: stores { [questionId]: answerText } from server
+let correctAnswers = {};
 let score = 0;
-let sessionId = null; // ← CHANGED: track session returned by /questions
+let sessionId = null;
 let timerID = null;
 let timeLeft = TIMER_SEC;
 let selected = null;
@@ -96,7 +96,7 @@ async function init() {
     const data = await res.json();
 
     questions = shuffle(Array.isArray(data) ? data : data.questions || []);
-    sessionId = data.sessionId || null; // ← CHANGED: persist for /submit
+    sessionId = data.sessionId || null;
 
     if (!questions.length) throw new Error("No questions returned");
     $("meta-q-count").textContent = `${questions.length} Questions`;
@@ -110,17 +110,33 @@ async function init() {
 }
 
 /* ─────────────────────────────────────────
+   FETCH ANSWERS FOR LIVE SCORING
+   ───────────────────────────────────────── */
+async function fetchAnswers() {
+  if (!sessionId) return;
+  try {
+    const res = await fetch(`${API_BASE}/answers?sessionId=${sessionId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.success && data.answers) {
+      correctAnswers = data.answers;
+    }
+  } catch (_) {}
+}
+
+/* ─────────────────────────────────────────
    QUIZ FLOW
    ───────────────────────────────────────── */
-function startQuiz() {
+async function startQuiz() {
   questions = shuffle(questions);
   current = 0;
   answers = {};
-  correctAnswers = {}; // ← CHANGED: reset between runs
+  correctAnswers = {};
   score = 0;
   selected = null;
   updateScoreBadge();
   showScreen("quiz");
+  fetchAnswers(); // background — populates correctAnswers for scoring on Next
   loadQuestion(0, false);
 }
 
@@ -176,6 +192,9 @@ function renderOptions(q) {
   });
 }
 
+/* ─────────────────────────────────────────
+   SELECT OPTION — just tracks selection, no scoring here
+   ───────────────────────────────────────── */
 function selectOption(btnEl, value) {
   if (!quizRunning) return;
   playSelect();
@@ -190,11 +209,30 @@ function selectOption(btnEl, value) {
   addRipple($("btn-next"));
 }
 
+/* ─────────────────────────────────────────
+   NEXT — score is updated HERE, after committing the answer
+   ───────────────────────────────────────── */
 function nextQuestion() {
   if (selected === null) return;
   stopTimer();
-  answers[questions[current].id || questions[current]._id || current] =
-    selected;
+
+  const q = questions[current];
+  const key = q.id || q._id || current;
+
+  // Record the answer
+  answers[key] = selected;
+
+  // ── Score update on commit ─────────────────────────────────
+  // Only runs if /answers already returned (correctAnswers populated).
+  // User can no longer change their answer at this point.
+  if (Object.keys(correctAnswers).length > 0) {
+    const correct = correctAnswers[key];
+    if (correct && selected === correct) {
+      score++;
+      updateScoreBadge();
+    }
+  }
+
   current++;
   if (current < questions.length) {
     loadQuestion(current, true);
@@ -244,9 +282,13 @@ function updateTimerDisplay() {
   numEl.classList.toggle("danger", danger);
 }
 
+/* ─────────────────────────────────────────
+   AUTO-ADVANCE (timer ran out — null answer, no score)
+   ───────────────────────────────────────── */
 function autoAdvance() {
   const q = questions[current];
-  answers[q.id || q._id || current] = null;
+  const key = q.id || q._id || current;
+  answers[key] = null; // timed out — no score, no update to badge
   current++;
   if (current < questions.length) {
     loadQuestion(current, true);
@@ -256,7 +298,7 @@ function autoAdvance() {
 }
 
 /* ─────────────────────────────────────────
-   SUBMIT                                    ← CHANGED: full rewrite
+   SUBMIT — server score is always authoritative
    ───────────────────────────────────────── */
 async function submitQuiz() {
   quizRunning = false;
@@ -267,46 +309,31 @@ async function submitQuiz() {
     const res = await fetch(`${API_BASE}/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId, // send session so server can validate
-        answers,
-      }),
+      body: JSON.stringify({ sessionId, answers }),
     });
 
     if (res.ok) {
       const data = await res.json();
-      // Use server score — authoritative
       if (typeof data.score === "number") score = data.score;
-      // Store flat correctAnswers map for review panel
       if (data.correctAnswers && typeof data.correctAnswers === "object") {
         correctAnswers = data.correctAnswers;
       } else if (Array.isArray(data.results)) {
-        // Fallback: build map from results[] if server sends that instead
         data.results.forEach((r) => {
           correctAnswers[r.questionId] = r.correct;
         });
       }
+      updateScoreBadge();
     } else {
-      // Server error — score stays 0, review shows no correct answers
       console.warn("Submit returned", res.status);
+      updateScoreBadge();
     }
   } catch (err) {
-    // Network failure — degrade gracefully, can't score without server
     console.warn("Submit failed:", err.message);
+    updateScoreBadge();
   }
 
   await sleep(800);
   showResults();
-}
-
-/* ─────────────────────────────────────────
-   SCORE (client-side fallback)              ← CHANGED: uses correctAnswers map
-   ───────────────────────────────────────── */
-function computeScore() {
-  return questions.reduce((s, q, i) => {
-    const key = q.id || q._id || i;
-    return answers[key] && answers[key] === correctAnswers[key] ? s + 1 : s;
-  }, 0);
 }
 
 /* ─────────────────────────────────────────
@@ -343,14 +370,14 @@ function getResultsMood(pct) {
 }
 
 /* ─────────────────────────────────────────
-   REVIEW                                    ← CHANGED: uses correctAnswers map
+   REVIEW
    ───────────────────────────────────────── */
 function buildReview() {
   const list = $("review-list");
   list.innerHTML = "";
   questions.forEach((q, i) => {
     const key = q.id || q._id || i;
-    const correct = correctAnswers[key] || ""; // ← server-provided answer
+    const correct = correctAnswers[key] || "";
     const given = answers[key] || null;
     const isRight = Boolean(given && given === correct);
 
@@ -376,6 +403,9 @@ function buildReview() {
   });
 }
 
+/* ─────────────────────────────────────────
+   SCORE BADGE
+   ───────────────────────────────────────── */
 function updateScoreBadge() {
   const el = $("score-badge");
   el.textContent = `Score: ${score}`;
